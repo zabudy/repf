@@ -1,0 +1,58 @@
+[tool.poetry]
+name = "repf"
+version = "0.1.0"
+description = "REPF real estate price forecasting platform"
+authors = ["Your Name <you@example.com>"]
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.12"
+# Web / API
+fastapi = "*"
+uvicorn = { version = "*", extras = ["standard"] }
+python-dotenv = "*"
+pydantic-settings = "*"
+httpx = "*"
+python-multipart = "*"
+# DB
+sqlalchemy = "*"
+asyncpg = "*"
+aiosqlite = "*"
+psycopg2-binary = "*"
+# Auth
+passlib = { version = "*", extras = ["bcrypt"] }
+python-jose = { version = "*", extras = ["cryptography"] }
+email-validator = "*"
+# Background tasks
+celery = "*"
+redis = "*"
+# ML / data
+pandas = "*"
+numpy = "*"
+scikit-learn = "*"
+lightgbm = "*"
+catboost = "*"
+statsmodels = "*"
+shap = "*"
+joblib = "*"
+matplotlib = "*"
+# RAG
+qdrant-client = "*"
+sentence-transformers = "*"
+# Logging
+python-json-logger = "*"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "*"
+pytest-asyncio = "*"
+pytest-cov = "*"
+pytest-mock = "*"
+black = "*"
+mypy = "*"
+ruff = "*"
+jupyter = "*"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
