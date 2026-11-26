@@ -42,6 +42,7 @@ qdrant-client = "*"
 sentence-transformers = "*"
 # Logging
 python-json-logger = "*"
+greenlet = "^3.5.6"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "*"

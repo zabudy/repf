@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     CONFIDENCE_THRESHOLD: float = 0.6
     HITL_ENABLED: bool = True
 
+    DATABASE_URL: str = "sqlite+aiosqlite:///./repf.db"
+
     HOST: str = "127.0.0.1"
     PORT: int = 8000
     LOG_LEVEL: str = "INFO"
