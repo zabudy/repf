@@ -47,3 +47,6 @@ models_store/
 # OS
 .DS_Store
 Thumbs.db
+
+.repf-llm.key
+.repf-llm-tmp-*
