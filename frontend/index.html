@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>REPF · Прогноз недвижимости</title>
+  <link rel="stylesheet" href="/assets/styles.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell top">
+      <a class="brand" href="/" aria-label="REPF, главная">REPF</a>
+      <nav aria-label="Разделы">
+        <button data-page="forecast" aria-current="page">Прогноз</button>
+        <button data-page="experiments">Эксперименты</button>
+        <button data-page="history">История</button>
+        <button data-page="settings">Настройки</button>
+      </nav>
+      <button id="account" class="secondary">Войти</button>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section id="forecast" class="page">
+      <div class="page-heading">
+        <h1>Прогноз недвижимости</h1>
+        <p>Оценка квартиры в Казани и прогноз по историческим данным.</p>
+      </div>
+      <div class="workspace">
+        <section class="card input-card" aria-labelledby="input-title">
+          <h2 id="input-title">Входные данные</h2>
+          <div class="segmented" role="group" aria-label="Тип прогноза">
+            <button data-type="tabular" aria-pressed="true">Квартира</button>
+            <button data-type="timeseries" aria-pressed="false">Временной ряд</button>
+          </div>
+          <form id="forecast-form">
+            <fieldset id="property-fields">
+              <label class="wide">Район
+                <select name="district">
+                  <option>Вахитовский</option><option>Советский</option><option>Приволжский</option>
+                  <option>Ново-Савиновский</option><option>Московский</option>
+                  <option>Кировский</option><option>Авиастроительный</option>
+                </select>
+              </label>
+              <label>Площадь, м² <input name="area_total" type="number" min="1" max="1000" value="54" step="0.1" required></label>
+              <label>Год постройки <input name="build_year" type="number" min="1850" max="2100" value="1985"></label>
+              <label>Этаж <input name="floor" type="number" min="1" max="150" value="5" required></label>
+              <label>Этажей в доме <input name="floors_total" type="number" min="1" max="150" value="9" required></label>
+              <label>Тип дома
+                <select name="house_type"><option value="panel">Панельный</option><option value="brick">Кирпичный</option>
+                  <option value="monolith">Монолитный</option><option value="block">Блочный</option><option value="">Не указан</option></select>
+              </label>
+              <label>Состояние
+                <select name="condition"><option value="cosmetic">Косметический</option><option value="needs_repair">Без ремонта</option>
+                  <option value="euro">Евроремонт</option><option value="">Не указано</option></select>
+              </label>
+              <label class="wide">История продаж JSON, необязательно <input name="market" type="file" accept=".json,application/json"></label>
+              <p class="wide note">Без своей истории используется синтетическая выборка для демонстрации.</p>
+            </fieldset>
+            <fieldset id="series-fields" hidden disabled>
+              <label class="wide">История ряда CSV <input name="series" type="file" accept=".csv,text/csv"></label>
+              <button class="secondary wide" id="load-example" type="button">Взять пример Татарстанстата</button>
+              <p id="series-label" class="note wide">Колонки date, value. Минимум 12 непустых периодов.</p>
+              <label>Частота
+                <select name="frequency"><option value="">Автоматически</option><option value="D">День</option>
+                  <option value="W">Неделя</option><option value="MS">Месяц</option><option value="QS">Квартал</option></select>
+              </label>
+              <label>Период сезонности <input name="seasonal_period" type="number" min="2" max="366" placeholder="Автоматически"></label>
+            </fieldset>
+            <div class="fields">
+              <label id="horizon-label">Горизонт, месяцев <input name="horizon" type="number" min="1" max="12" value="6" required></label>
+              <label>Режим <select name="mode"><option value="+agents">Агенты + RAG</option><option value="+rag">RAG</option><option value="baseline">Базовый</option></select></label>
+            </div>
+            <button class="primary full" type="submit">Рассчитать прогноз</button>
+            <p class="error" id="forecast-error" role="alert"></p>
+          </form>
+        </section>
+
+        <section class="card result-card" aria-labelledby="result-title">
+          <div class="card-head"><h2 id="result-title">Результат</h2><span id="status" class="status" aria-live="polite">Ожидает запуска</span></div>
+          <div id="empty" class="empty">
+            <p>После расчёта здесь появятся прогноз, интервал и оценка качества.</p>
+          </div>
+          <div id="result" hidden>
+            <div class="main-result"><div><p id="price-label"></p><strong id="price"></strong></div><span id="model"></span></div>
+            <p id="result-source" class="note"></p>
+            <figure>
+              <canvas id="forecast-chart" height="235" role="img" aria-label="Прогноз и 80%-й предсказательный интервал"></canvas>
+              <figcaption><span class="key"></span> Прогноз <span class="key band"></span> 80%-й интервал</figcaption>
+            </figure>
+            <div class="stat-grid" id="stats"></div>
+            <p id="explanation"></p>
+            <ul id="factors" class="plain"></ul>
+            <button class="secondary" id="download" type="button">Скачать CSV</button>
+          </div>
+          <form id="review-form" class="review" hidden>
+            <h3>Требуется проверка прогноза</h3>
+            <div class="fields">
+              <label>Модель для повтора <select name="model"></select></label>
+              <label>Новый горизонт <input name="horizon" type="number" min="1" max="366" placeholder="Текущий"></label>
+              <label class="wide">Комментарий <input name="comment" maxlength="1000"></label>
+            </div>
+            <div class="actions">
+              <button class="primary" value="accept">Принять</button>
+              <button class="secondary" value="retry">Пересчитать</button>
+              <button class="secondary" value="reject">Отклонить</button>
+            </div>
+          </form>
+          <details id="trace-panel" hidden><summary>Трассировка агентов</summary><div id="trace"></div></details>
+        </section>
+      </div>
+    </section>
+
+    <section id="experiments" class="page" hidden>
+      <div class="page-heading"><h1>Эксперименты</h1><p>Сравните режимы на одинаковых отложенных наблюдениях.</p></div>
+      <div class="workspace experiment-layout">
+        <form id="evaluation-form" class="card">
+          <h2>Параметры оценки</h2>
+          <label>Датасет <select name="dataset"><option value="synthetic">Синтетические ряды</option>
+            <option value="macro">Открытые макроэкономические ряды</option><option value="tatarstan">Татарстанстат</option></select></label>
+          <label>Количество рядов <input name="num_series" type="number" min="1" max="100" value="20"></label>
+          <label>Горизонты, через запятую <input name="horizons" value="10, 20, 50" required></label>
+          <label>Доли обучения, через запятую <input name="data_fractions" value="0.1, 0.2, 0.5, 1" required></label>
+          <div class="checks">
+            <label><input type="checkbox" name="mode" value="baseline" checked> Базовый</label>
+            <label><input type="checkbox" name="mode" value="+rag" checked> RAG</label>
+            <label><input type="checkbox" name="mode" value="+agents" checked> Агенты</label>
+          </div>
+          <button class="primary full">Запустить сравнение</button>
+          <p class="note">Агенты используют локальные правила при пакетной оценке.</p>
+          <p id="evaluation-error" class="error" role="alert"></p>
+        </form>
+        <section class="card">
+          <div class="card-head"><h2>Сравнение режимов</h2><span class="status" id="evaluation-status" aria-live="polite">Ожидает запуска</span></div>
+          <div id="evaluation-chart-panel" hidden>
+            <label>Горизонт на графике <select id="evaluation-horizon"></select></label>
+            <canvas id="evaluation-chart" height="230" aria-label="MASE по долям обучения" role="img"></canvas>
+          </div>
+          <div class="table-wrap" id="evaluation-table"></div>
+          <details id="comparisons-panel" hidden><summary>Парные статистические сравнения</summary><div class="table-wrap" id="comparisons"></div></details>
+        </section>
+      </div>
+    </section>
+
+    <section id="history" class="page" hidden>
+      <div class="page-heading"><h1>История прогнозов</h1></div>
+      <section class="card">
+        <div class="card-head"><h2>Задачи</h2><label class="check"><input id="review-only" type="checkbox"> Ожидают проверки</label></div>
+        <div id="history-table" class="table-wrap"></div>
+      </section>
+    </section>
+    <section id="settings" class="page" hidden>
+      <div class="page-heading"><h1>Настройки модели</h1><p>Сохраните несколько моделей и выберите, какую агенты будут использовать для прогнозов.</p></div>
+      <div class="settings-layout">
+        <section class="settings-form" aria-labelledby="settings-title">
+          <h2 id="settings-title">Новый пресет</h2>
+          <div id="settings-gate" hidden><p>Войдите, чтобы сохранить настройки для своего аккаунта.</p>
+            <button type="button" id="settings-login" class="primary">Войти</button></div>
+          <form id="llm-form" hidden>
+            <label>Название пресета <input name="name" maxlength="80" placeholder="Например, Быстрый прогноз" required></label>
+            <label>Провайдер
+              <select name="provider">
+                <option value="compatible">OpenAI-совместимый API</option>
+                <option value="ollama">Ollama</option>
+                <option value="local">Локальные правила</option>
+              </select>
+            </label>
+            <label id="endpoint-field">Сервер API <select name="endpoint"></select></label>
+            <label id="model-field">Идентификатор модели <input name="model" maxlength="160" spellcheck="false"></label>
+            <label id="key-field">API-ключ
+              <input name="api_key" type="password" maxlength="2048" autocomplete="off" spellcheck="false">
+              <span id="key-note" class="note"></span>
+            </label>
+            <p class="note" id="settings-note"></p>
+            <div class="actions">
+              <button class="primary" type="submit">Проверить и сохранить</button>
+            </div>
+            <p id="settings-message" class="settings-message" role="status"></p>
+          </form>
+        </section>
+        <aside class="settings-summary" aria-labelledby="current-model-title">
+          <h2 id="current-model-title">Сейчас используется</h2>
+          <p id="current-model">Настройки сервера</p>
+          <p id="current-model-detail" class="note"></p>
+          <button type="button" id="reset-model" class="text-button" hidden>Вернуть настройки сервера</button>
+          <div id="saved-models" hidden>
+            <h3>Сохранённые модели</h3>
+            <p id="empty-models" class="note">Пресетов пока нет.</p>
+            <ul id="model-checkpoints"></ul>
+          </div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="auth-dialog">
+    <form id="auth-form">
+      <div class="card-head"><h2>Аккаунт REPF</h2><button type="button" id="close-auth" class="secondary" aria-label="Закрыть">✕</button></div>
+      <label>Email <input name="email" type="email" autocomplete="username" required></label>
+      <label>Пароль <input name="password" type="password" autocomplete="current-password" minlength="8" maxlength="72" required></label>
+      <div class="actions"><button value="login" class="primary">Войти</button><button value="register" class="secondary">Создать аккаунт</button></div>
+      <p id="auth-error" class="error" role="alert"></p>
+    </form>
+  </dialog>
+</body>
+</html>
