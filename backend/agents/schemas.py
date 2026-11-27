@@ -12,6 +12,11 @@ class PropertyInput(BaseModel):
     house_type: str | None = None
     condition: str | None = None
     horizon_months: int = 6
+    # необязательные поля, которые использует ML-модель
+    geo_lat: float | None = None
+    geo_lon: float | None = None
+    rooms: int | None = None  # 0 = студия
+    kitchen_area: float | None = None
 
 
 class ValidationReport(BaseModel):
@@ -25,6 +30,7 @@ class RawForecast(BaseModel):
     interval_low: float
     interval_high: float
     model_name: str
+    notes: list[str] = Field(default_factory=list)  # ограничения модели
 
 
 class Critique(BaseModel):

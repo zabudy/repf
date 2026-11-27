@@ -38,3 +38,70 @@ class BaselineForecaster:
             interval_high=round(price * (1 + width)),
             model_name=self.model_name,
         )
+
+
+# ----------------------------------------------------------------------------
+# Настоящий прогнозист (этап 6): LightGBM + индекс рынка
+# ----------------------------------------------------------------------------
+from pathlib import Path  # noqa: E402
+
+import numpy as np  # noqa: E402
+import pandas as pd  # noqa: E402
+
+from backend.core import constants as C  # noqa: E402
+from backend.core.config import get_settings  # noqa: E402
+from backend.features.build import build_features  # noqa: E402
+from backend.models.hedonic import HORIZON_WIDEN, load_bundle  # noqa: E402
+from backend.models.market_index import trend_value  # noqa: E402
+
+
+class ModelForecaster:
+    name = "Forecaster"
+    model_name = "lgbm-hedonic+trend"
+
+    def __init__(self, bundle: dict):
+        self.b = bundle
+
+    @classmethod
+    def load(cls, path: str | Path) -> "ModelForecaster":
+        return cls(load_bundle(path))
+
+    def run(self, p: PropertyInput) -> RawForecast:
+        lat0, lon0 = self.b["geo_median"]
+        row = pd.DataFrame([{
+            "area": p.area_total,
+            "kitchen_area": p.kitchen_area if p.kitchen_area else np.nan,
+            "rooms": p.rooms if p.rooms is not None else np.nan,
+            "level": p.floor,
+            "levels": p.floors_total,
+            "building_type": C.BUILDING_TYPE_CODE.get(p.house_type or "", 0),
+            "geo_lat": p.geo_lat if p.geo_lat is not None else lat0,
+            "geo_lon": p.geo_lon if p.geo_lon is not None else lon0,
+        }])
+        month = self.b["last_month"] + p.horizon_months
+        log_m2 = float(self.b["model"].predict(build_features(row))[0]) + float(
+            trend_value(self.b["trend"], month)
+        )
+        widen = HORIZON_WIDEN * p.horizon_months
+        price = float(np.exp(log_m2) * p.area_total)
+        low = float(np.exp(log_m2 + self.b["q_low"] - widen) * p.area_total)
+        high = float(np.exp(log_m2 + self.b["q_high"] + widen) * p.area_total)
+
+        notes = ["модель не учитывает состояние ремонта и год постройки (их нет в обучающих данных)"]
+        if p.geo_lat is None or p.geo_lon is None:
+            notes.append("координаты не заданы — использован центр выборки, точность ниже")
+        return RawForecast(
+            price=round(price), interval_low=round(low), interval_high=round(high),
+            model_name=self.model_name, notes=notes,
+        )
+
+
+def load_default_forecaster():
+    """ML-модель, если файл обучен; иначе заглушка."""
+    path = Path(get_settings().MODEL_PATH)
+    if path.exists():
+        try:
+            return ModelForecaster.load(path)
+        except Exception:  # повреждённый файл не должен ронять сервис
+            pass
+    return BaselineForecaster()

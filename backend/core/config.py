@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRATION_MINUTES: int = 10080
 
+    MODEL_PATH: str = "models_store/repf_model.joblib"
+
     HOST: str = "127.0.0.1"
     PORT: int = 8000
     LOG_LEVEL: str = "INFO"

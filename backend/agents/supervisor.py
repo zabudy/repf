@@ -1,7 +1,7 @@
 """Supervisor: управляет цепочкой Validator → Forecaster → Critic → Explainer."""
 from backend.agents.critic import Critic
 from backend.agents.explainer import Explainer
-from backend.agents.forecaster import BaselineForecaster
+from backend.agents.forecaster import load_default_forecaster
 from backend.agents.schemas import AgentStep, ForecastResult, PropertyInput
 from backend.agents.validator import Validator
 from backend.core.config import get_settings
@@ -10,7 +10,7 @@ from backend.core.config import get_settings
 class Supervisor:
     def __init__(self, forecaster=None, confidence_threshold: float | None = None):
         self.validator = Validator()
-        self.forecaster = forecaster or BaselineForecaster()
+        self.forecaster = forecaster or load_default_forecaster()
         self.critic = Critic()
         self.explainer = Explainer()
         self.threshold = (
@@ -41,7 +41,8 @@ class Supervisor:
 
         # 2. Forecaster
         raw = self.forecaster.run(p)
-        trace.append(AgentStep(agent="Forecaster", status="ok", message=f"{raw.model_name}: {raw.price:,.0f} ₽"))
+        trace.append(AgentStep(agent="Forecaster", status="ok", message=f"{raw.model_name}: {raw.price:,.0f} ₽"
+                + (f" ({'; '.join(raw.notes)})" if raw.notes else "")))
 
         # 3. Critic
         critique = self.critic.run(p, raw, report)

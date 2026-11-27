@@ -24,6 +24,8 @@ class Explainer:
         ]
         if c.notes:
             parts.append("Замечания: " + "; ".join(c.notes) + ".")
+        if f.notes:
+            parts.append("Ограничения модели: " + "; ".join(f.notes) + ".")
         if needs_review:
             parts.append("Рекомендуется проверка экспертом.")
         return " ".join(parts)
