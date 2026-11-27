@@ -21,6 +21,10 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str = "sqlite+aiosqlite:///./repf.db"
 
+    JWT_SECRET_KEY: str = "dev-secret-change-me"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRATION_MINUTES: int = 10080
+
     HOST: str = "127.0.0.1"
     PORT: int = 8000
     LOG_LEVEL: str = "INFO"
