@@ -1,0 +1,14 @@
+.git
+.env
+.env.*
+.venv
+**/__pycache__
+.pytest_cache
+.coverage
+*.db
+logs
+data/raw
+data/processed
+
+.repf-llm.key
+.repf-llm-tmp-*
