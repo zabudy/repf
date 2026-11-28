@@ -45,6 +45,18 @@ if (!(Test-Path .env)) { Copy-Item .env.example .env }
 | Порт 8000 занят | Остановите предыдущий экземпляр REPF или смените `PORT` в `.env`, затем откройте указанный порт |
 | Прогноз завершился ошибкой | Проверьте статус задачи в разделе «История» и `logs/app.log` |
 
+## Qdrant при локальном запуске
+
+Чтобы подключить Qdrant к Python-версии REPF, из корня проекта запустите контейнер. Команда одинакова для PowerShell, macOS и Linux.
+
+```bash
+docker run -d --name repf-local-qdrant --restart unless-stopped -p 127.0.0.1:6333:6333 -v repf-local-qdrant:/qdrant/storage qdrant/qdrant:v1.13.4
+```
+
+Добавьте в `.env` строку `QDRANT_URL=http://127.0.0.1:6333`. Опубликуйте векторы командой `.venv/bin/python -m scripts.index_qdrant` или `.\.venv\Scripts\python.exe -m scripts.index_qdrant` в PowerShell и перезапустите REPF. После обновления корпуса повторите публикацию векторов.
+
+Запустите прогноз в режиме «Подбор по аналогам». В «Трассировке агентов» откройте «Поиск кейсов» и проверьте поле `backend`. При успешном поиске через Qdrant там указано `qdrant`. Если сервис недоступен или индекс отстаёт от корпуса, REPF использует `local_pca`. Для запуска уже созданного контейнера после ручной остановки используйте `docker start repf-local-qdrant`. Полный Docker Compose настраивает Qdrant и публикует индекс самостоятельно.
+
 ## LLM
 
 В интерфейсе откройте «Настройки» после входа. В аккаунте можно сохранить несколько именованных пресетов с отдельными моделями и API-ключами. В списке серверов OpenAI-совместимого API доступны DeepSeek, OpenAI, OpenRouter и Groq. Чтобы добавить собственный адрес, задайте на сервере `COMPATIBLE_LLM_URL`. Модель получает агрегированные признаки ряда и найденные кейсы для выбора инструмента. Сохранение, переключение и кнопка «Проверить» выполняют по одному пробному вызову инструмента для выбранной модели. При ошибке сохранение или переключение отклоняется. [OpenAI](https://platform.openai.com/docs/api-reference/chat), [OpenRouter](https://learn.openrouter.ai/courses/first-request/make-a-request), [Groq](https://console.groq.com/docs/api-reference)
