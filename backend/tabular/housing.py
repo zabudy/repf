@@ -82,8 +82,8 @@ class Encoder:
 
     @staticmethod
     def numeric(row: Apartment) -> list[float]:
-        return [row.area_total, float(row.floor), float(row.floors_total),
-                float(row.build_year) if row.build_year is not None else np.nan]
+        return [row.area_total, *(float(value) if value is not None else np.nan
+                                  for value in (row.floor, row.floors_total, row.build_year))]
 
     @staticmethod
     def categorical(row: Apartment) -> list[str]:
@@ -93,6 +93,7 @@ class Encoder:
     @classmethod
     def fit(cls, rows: list[Apartment]) -> "Encoder":
         x = np.asarray([cls.numeric(row) for row in rows])
+        has_values = np.isfinite(x).any(axis=0)
         centers = np.array([np.median(col[np.isfinite(col)]) if np.isfinite(col).any() else 0.
                             for col in x.T])
         x = np.where(np.isnan(x), centers, x)
@@ -103,7 +104,8 @@ class Encoder:
         for column in categories:
             groups.append(slice(offset, offset + len(column)))
             offset += len(column)
-        return cls(centers, np.maximum(x.std(axis=0), 1e-6), categories, groups)
+        scales = np.where(has_values, np.maximum(x.std(axis=0), 1e-6), np.inf)
+        return cls(centers, scales, categories, groups)
 
     def transform(self, rows: list[Apartment]) -> np.ndarray:
         x = np.asarray([self.numeric(row) for row in rows])
@@ -243,7 +245,7 @@ def forecast(market: Market, horizon: int, name: str, arguments: dict) -> dict:
     projected = np.maximum(index.values[-1] * .2, holt(index.values, horizon, .4, .12, .92))
     ratio = float(np.exp(predict(encoder.transform([market.apartment]))[0]))
     prices = projected * ratio
-    reference = min(market.sales, key=lambda row: abs(row.area_total - 55) + abs(row.floor - 4))
+    reference = min(market.sales, key=lambda row: abs(row.area_total - 55) + abs((row.floor or 4) - 4))
     return {"predicted_price": float(prices[-1]), "price_per_m2": float(prices[-1] / market.apartment.area_total),
             "market_index_forecast": projected.tolist(), "predictions": prices.tolist(),
             "dates": pd.date_range(index.index[-1], periods=horizon + 1, freq="MS")[1:].strftime("%Y-%m-%d").tolist(),

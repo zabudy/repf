@@ -15,7 +15,8 @@
 | `POST /api/v1/forecast/` | `202 Accepted`, `task_id`, начальный статус |
 | `GET /api/v1/forecast/` | Последние 50 задач. Параметр `review_queue=true` открывает очередь HITL |
 | `GET /api/v1/forecast/{task_id}/status` | Статус, доступные инструменты, горизонт, решение и возможная ошибка |
-| `GET /api/v1/forecast/{task_id}/result` | Прогноз, интервалы, модель, метрики, кейсы, вывод Critic и ссылка на скачивание |
+| `GET /api/v1/forecast/{task_id}/result` | Прогноз, интервалы, модель, метрики, кейсы, вывод Critic, `chat_enabled` и ссылка на скачивание |
+| `POST /api/v1/forecast/{task_id}/chat` | Ответ LLM о результате прогноза и имя модели |
 | `GET /api/v1/forecast/{task_id}/download` | CSV с датой, прогнозом и границами интервала |
 | `GET /api/v1/forecast/{task_id}/reasoning` | Дерево событий с дочерними шагами и вызовами LLM |
 | `POST /api/v1/forecast/{task_id}/hitl` | Ручное решение по задаче в `waiting_for_human` |
@@ -60,6 +61,8 @@ curl.exe -X POST http://127.0.0.1:8000/api/v1/forecast/ -H "Authorization: Beare
 JSON-загрузка ряда использует `data.task_type=timeseries` и `data.observations=[{"date":"2024-01-01","value":100}]` с необходимым количеством наблюдений. Допустимы поля `frequency`, `seasonal_period` и `nonnegative`. Предел тела запроса — 5 МБ.
 
 HITL принимает `{"action":"accept","comment":"Проверено"}`, `{"action":"retry","model":"fit_holt","horizon":4}` или `{"action":"reject","comment":"Нужны дополнительные данные"}`. Для повтора достаточно изменить один параметр. Результат возвращается в статусах `completed` и `waiting_for_human`. Недоступный результат возвращает 409.
+
+Чат доступен владельцу готового результата в режиме `+agents`. Передайте `{"question":"Как читать прогнозный интервал?","history":[]}`. В необязательном поле `history` можно передать до шести предыдущих пар `{"question":"…","answer":"…"}`. Максимальная длина вопроса — 1500 символов. При успехе API возвращает поля `answer` и `model`. Код 503 означает, что требуется настроить доступную модель, а 502 — что выбранная модель не ответила.
 
 ## Эксперименты
 

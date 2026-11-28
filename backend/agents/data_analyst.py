@@ -18,13 +18,14 @@ def analyse(data: SeriesInput | TabularInput, statistical: bool = True):
         return series, metadata, feature_vector(series.values)
     market = prepare_market(data)
     missing = sum(getattr(row, field) is None for row in market.sales for field in
-                  ("build_year", "house_type", "condition")) / (len(market.sales) * 7)
+                  ("floor", "floors_total", "build_year", "house_type", "condition")) / (len(market.sales) * 7)
     district = market.apartment.district.casefold()
     numeric = market.apartment
     base_features = feature_vector(market.index.values)
     comparisons = [row for row in market.sales if row.district.casefold() == district]
     sample = comparisons if comparisons else market.sales
-    locality = [numeric.area_total / 100, numeric.floor / numeric.floors_total,
+    floor_ratio = numeric.floor / numeric.floors_total if numeric.floor and numeric.floors_total else 0.
+    locality = [numeric.area_total / 100, floor_ratio,
                 (numeric.build_year or 1985) / 2100, missing,
                 len(comparisons) / len(market.sales),
                 float(np.std([row.price_rub / row.area_total for row in sample])) /

@@ -30,15 +30,15 @@ class SeriesInput(InputModel):
 class Apartment(InputModel):
     district: str = Field(min_length=1, max_length=60)
     area_total: Positive = Field(le=1000)
-    floor: int = Field(ge=1, le=150)
-    floors_total: int = Field(ge=1, le=150)
+    floor: int | None = Field(default=None, ge=1, le=150)
+    floors_total: int | None = Field(default=None, ge=1, le=150)
     build_year: int | None = Field(default=None, ge=1850, le=2100)
     house_type: str | None = Field(default=None, max_length=40)
     condition: str | None = Field(default=None, max_length=40)
 
     @model_validator(mode="after")
     def check_floor(self) -> "Apartment":
-        if self.floor > self.floors_total:
+        if self.floor is not None and self.floors_total is not None and self.floor > self.floors_total:
             raise ValueError("Этаж выше этажности дома")
         return self
 

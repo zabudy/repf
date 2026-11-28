@@ -1,22 +1,40 @@
 """Queue forecasts, expose the trace and apply a recorded HITL decision."""
 import csv
 import io
+import logging
 from pathlib import Path
+from typing import Annotated
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import ValidationError
+from pydantic import Field, StringConstraints, ValidationError
 from sqlalchemy import select, update
 from starlette.datastructures import UploadFile
 
 from backend.api.deps import CurrentUser, Session
-from backend.core.forecast import ForecastRequest, Review, ToolChoice
+from backend.core.config import get_settings
+from backend.core.forecast import ForecastRequest, InputModel, Review, ToolChoice
+from backend.core.llm.manager import LLMManager
+from backend.core.llm.profile import active_profile, effective_settings
 from backend.core.llm.tools import available, validate
 from backend.db.models import ForecastTask, KnowledgeCase, LLMCall, ReasoningLog
 
 router = APIRouter(prefix="/api/v1/forecast", tags=["forecasts"])
 LIMIT = 5 * 1024 * 1024
+logger = logging.getLogger(__name__)
+
+ChatQuestion = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1500)]
+
+
+class ChatTurn(InputModel):
+    question: ChatQuestion
+    answer: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=6000)]
+
+
+class ForecastChat(InputModel):
+    question: ChatQuestion
+    history: list[ChatTurn] = Field(default_factory=list, max_length=6)
 
 
 async def get_task(task_id: UUID, user, session, can_review: bool = False) -> ForecastTask:
@@ -115,7 +133,47 @@ async def result(task_id: UUID, user: CurrentUser, session: Session) -> dict:
     if task.result is None or task.status not in {"completed", "waiting_for_human"}:
         raise HTTPException(409, "Результат ещё недоступен")
     return {**task.result, "task_id": task.id, "status": task.status, "review": task.review,
+            "chat_enabled": task.owner_id == user.id and task.request.get("mode") == "+agents",
             "download_url": f"/api/v1/forecast/{task.id}/download"}
+
+
+@router.post("/{task_id}/chat")
+async def chat(task_id: UUID, payload: ForecastChat, user: CurrentUser, session: Session) -> dict:
+    task = await get_task(task_id, user, session)
+    if task.owner_id != user.id:
+        raise HTTPException(404, "Задача не найдена")
+    if task.request.get("mode") != "+agents":
+        raise HTTPException(409, "Чат доступен для прогноза в режиме «Агенты + RAG»")
+    if task.result is None or task.status not in {"completed", "waiting_for_human"}:
+        raise HTTPException(409, "Результат ещё недоступен")
+    context = {key: task.result[key] for key in (
+        "model", "frequency", "dates", "predictions", "interval", "metrics", "validation",
+        "data_summary", "data_origin", "confidence", "explanation", "needs_review",
+        "predicted_price", "price_per_m2", "factors",
+    ) if key in task.result}
+    context.update(task_type=task.request["data"]["task_type"], horizon=task.request["horizon"])
+    profile = await active_profile(session, user.id)
+    try:
+        settings = effective_settings(get_settings(), profile)
+    except ValueError as error:
+        raise HTTPException(503, str(error)) from error
+    await session.rollback()
+    manager = LLMManager(settings)
+    if not manager.providers:
+        raise HTTPException(503, "Выберите доступную LLM в настройках, чтобы открыть чат")
+    model = manager.providers[0].model
+
+    async def log(entry: dict) -> None:
+        logger.info("ForecastChat task=%s provider=%s model=%s status=%s input_tokens=%s output_tokens=%s latency_ms=%s",
+                    task_id, entry["provider"], entry["model"], entry["status"],
+                    entry["input_tokens"], entry["output_tokens"], entry["latency_ms"])
+
+    try:
+        answer = await manager.discuss_forecast(context, [turn.model_dump() for turn in payload.history],
+                                                payload.question, log)
+    except ValueError as error:
+        raise HTTPException(502, "Модель не вернула ответ. Повторите отправку или выберите другую LLM.") from error
+    return {"answer": answer, "model": model}
 
 
 @router.get("/{task_id}/download")

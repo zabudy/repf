@@ -21,13 +21,73 @@ const state = {
   token: sessionStorage.getItem("repf-token"), kind: "tabular", example: null,
   task: null, forecast: null, evaluation: null, taskWatch: 0, evaluationWatch: 0,
 };
+const forecastChat = { turns: [], request: null };
 const modeColors = { baseline: "#656055", "+rag": "#893d2d", "+agents": "#364b3e" };
+const modeLabels = { baseline: "Базовый", "+rag": "Подбор по аналогам", "+agents": "Агенты" };
 
 function node(tag, value, style) {
   const item = document.createElement(tag);
   if (value !== undefined) item.textContent = value;
   if (style) item.className = style;
   return item;
+}
+
+function appendInlineMarkdown(container, source) {
+  const syntax = /(\\[\\\x60*])|(\x60+)([^\n]+?)\2(?!\x60)|\*\*(?=\S)(.+?)\*\*|\*(?=\S)([^*]+?)\*/g;
+  let start = 0;
+  for (const match of source.matchAll(syntax)) {
+    const [token, escaped, , code, bold, italic] = match;
+    container.append(source.slice(start, match.index));
+    if (escaped) container.append(escaped.slice(1));
+    else if (code) container.append(node("code", code));
+    else {
+      const emphasis = node(bold ? "strong" : "em");
+      appendInlineMarkdown(emphasis, bold ?? italic);
+      container.append(emphasis);
+    }
+    start = match.index + token.length;
+  }
+  container.append(source.slice(start));
+}
+
+function renderMarkdown(container, source) {
+  container.replaceChildren();
+  let block = null;
+  let code = null;
+  for (const line of source.split(/\r?\n/)) {
+    if (code) {
+      if (/^\s*\x60{3,}\s*$/.test(line)) code = null;
+      else code.append(line, "\n");
+      continue;
+    }
+    if (/^\s*\x60{3,}/.test(line)) {
+      code = node("code");
+      const pre = node("pre");
+      pre.append(code);
+      container.append(pre);
+      block = null;
+    } else if (!line.trim()) {
+      block = null;
+    } else if (/^\s*#{1,6}\s+/.test(line)) {
+      const heading = node("h3");
+      appendInlineMarkdown(heading, line.replace(/^\s*#{1,6}\s+/, ""));
+      container.append(heading);
+      block = null;
+    } else {
+      const list = line.match(/^\s*([-+*]|\d+\.)\s+(.+)/);
+      const tag = list ? (list[1].endsWith(".") ? "ol" : "ul") : "p";
+      if (block?.localName !== tag) {
+        block = node(tag);
+        if (tag === "ol") block.start = Number.parseInt(list[1], 10);
+        container.append(block);
+      } else if (!list) block.append(node("br"));
+      if (list) {
+        const item = node("li");
+        appendInlineMarkdown(item, list[2]);
+        block.append(item);
+      } else appendInlineMarkdown(block, line);
+    }
+  }
 }
 
 function status(id, value) {
@@ -61,6 +121,7 @@ function signOut() {
   state.evaluationWatch++;
   sessionStorage.removeItem("repf-token");
   el("account").textContent = "Войти";
+  resetForecastChat();
   clearSettings();
 }
 
@@ -160,8 +221,47 @@ el("forecast-form").elements.series.addEventListener("change", (event) => {
   }
 });
 
+async function readMarket(file) {
+  if (!file?.name) return {};
+  const source = JSON.parse(await file.text());
+  const dataset = Array.isArray(source) ? { market: source } : source;
+  if (dataset?.market == null && dataset?.market_index) return dataset;
+  if (!Array.isArray(dataset?.market)) throw new Error("Укажите массив записей или поле market.");
+  return dataset;
+}
+
+const marketForm = el("forecast-form").elements;
+const demoDistricts = Array.from(marketForm.district.options, (option) => option.value);
+marketForm.market.addEventListener("change", async () => {
+  const file = marketForm.market.files[0];
+  let districts = demoDistricts;
+  let label = "Без файла используется синтетическая выборка по Казани.";
+  if (file) {
+    try {
+      const { market } = await readMarket(file);
+      label = file.name;
+      if (market) {
+        districts = [...new Set(market.map((row) => row?.district)
+          .filter((district) => typeof district === "string" && district.trim()))].sort((a, b) => a.localeCompare(b, "ru"));
+        if (!districts.length) throw new Error("В истории отсутствуют районы или города.");
+        label += " · " + formatNumber(market.length) + " записей";
+      }
+    } catch (error) {
+      districts = demoDistricts;
+      label = "Ошибка чтения истории. " + error.message;
+    }
+  }
+  if (marketForm.market.files[0] !== file) return;
+  const selected = marketForm.district.value;
+  marketForm.district.replaceChildren(...districts.map((district) => new Option(district, district)));
+  if (districts.includes(selected)) marketForm.district.value = selected;
+  el("market-label").textContent = label;
+});
+
 function resetForecast(placeholder = "Ожидает запуска") {
+  state.taskWatch++;
   state.forecast = null;
+  resetForecastChat();
   el("result").hidden = true;
   el("empty").hidden = false;
   el("trace-panel").hidden = true;
@@ -183,9 +283,7 @@ async function submitForecast(form) {
       apartment[field] = ["area_total", "floor", "floors_total", "build_year"].includes(field) ?
         (value ? Number(value) : null) : value || null;
     }
-    const market = values.get("market");
-    const source = market.size ? JSON.parse(await market.text()) : {};
-    const dataset = Array.isArray(source) ? { market: source } : source;
+    const dataset = await readMarket(values.get("market"));
     return post("/api/v1/forecast/", { data: { ...dataset, task_type: "tabular", apartment }, horizon, mode });
   }
   const file = values.get("series");
@@ -254,6 +352,7 @@ function showTrace(tree) {
 function showResult(result, current) {
   state.forecast = result;
   el("result").hidden = false;
+  el("forecast-chat").hidden = !result.chat_enabled;
   el("empty").hidden = true;
   const isApartment = result.predicted_price !== undefined;
   el("price-label").textContent = isApartment ? "Цена на конец горизонта" : "Последняя точка прогноза";
@@ -272,7 +371,9 @@ function showResult(result, current) {
     item.append(node("span", label, "note"), node("strong", typeof value === "string" ? value : formatNumber(value)));
     return item;
   }));
-  el("explanation").textContent = result.explanation || (result.validation.reasons || []).join(". ");
+  const explanation = el("explanation");
+  if (result.explanation) renderMarkdown(explanation, result.explanation);
+  else explanation.textContent = (result.validation.reasons || []).join(". ");
   el("factors").replaceChildren(...(result.factors || []).map((factor) =>
     node("li", (fields[factor.feature] || factor.feature) + " · " + money.format(factor.impact_rub))));
   el("review-form").hidden = current.status !== "waiting_for_human";
@@ -280,6 +381,69 @@ function showResult(result, current) {
     ...current.models.map((name) => new Option(name, name)));
   redraw();
 }
+
+function resetForecastChat() {
+  forecastChat.request?.abort();
+  forecastChat.request = null;
+  forecastChat.turns = [];
+  el("forecast-chat").hidden = true;
+  el("chat-form").reset();
+  el("chat-form").querySelector("button").disabled = false;
+  el("chat-messages").replaceChildren();
+  el("chat-status").textContent = "";
+  el("chat-error").textContent = "";
+  el("chat-error").hidden = true;
+}
+
+function addChatMessage(role, text, speaker) {
+  const messages = el("chat-messages");
+  const line = node("li");
+  line.dataset.role = role;
+  const message = node("div", undefined, role === "assistant" ? "markdown" : "chat-question");
+  if (role === "assistant") renderMarkdown(message, text);
+  else message.textContent = text;
+  line.append(node("strong", speaker, "note"), message);
+  messages.append(line);
+  messages.scrollTop = messages.scrollHeight;
+  return line;
+}
+
+el("chat-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const question = form.elements.question.value.trim();
+  if (!question || forecastChat.request || !state.forecast?.chat_enabled) return;
+  const button = form.querySelector("button");
+  const request = new AbortController();
+  forecastChat.request = request;
+  button.disabled = true;
+  el("chat-error").textContent = "";
+  el("chat-error").hidden = true;
+  el("chat-status").textContent = "Модель отвечает…";
+  form.elements.question.value = "";
+  const pending = addChatMessage("user", question, "Вы");
+  try {
+    const result = await json("/api/v1/forecast/" + state.forecast.task_id + "/chat", {
+      method: "POST", signal: request.signal,
+      body: JSON.stringify({ question, history: forecastChat.turns.slice(-6) }),
+    });
+    if (forecastChat.request !== request) return;
+    forecastChat.turns.push({ question, answer: result.answer });
+    addChatMessage("assistant", result.answer, result.model || "Модель");
+  } catch (error) {
+    if (forecastChat.request !== request) return;
+    pending.remove();
+    if (!form.elements.question.value) form.elements.question.value = question;
+    el("chat-error").textContent = error.message;
+    el("chat-error").hidden = false;
+  } finally {
+    if (forecastChat.request === request) {
+      forecastChat.request = null;
+      button.disabled = false;
+      el("chat-status").textContent = "";
+    }
+  }
+});
 
 async function watchTask(id) {
   state.task = id;
@@ -438,14 +602,14 @@ function showEvaluation(result) {
     el("evaluation-table").replaceChildren(node("p", "Для выбранных параметров недостаточно наблюдений.", "note"));
   } else {
     table(el("evaluation-table"), ["Режим", "Горизонт", "Обучение", "Рядов", "MASE", "WAPE %", "Итерации", "HITL %", "мс"],
-      result.summary.map((row) => [row.mode, row.horizon, Math.round(row.fraction * 100) + "%", row.series,
+      result.summary.map((row) => [modeLabels[row.mode], row.horizon, Math.round(row.fraction * 100) + "%", row.series,
         formatNumber(row.metrics.mase), formatNumber(row.metrics.wape), formatNumber(row.iterations),
         formatNumber(row.hitl_rate * 100), formatNumber(row.latency_ms)]));
   }
   el("comparisons-panel").hidden = !result.comparisons.length;
   table(el("comparisons"), ["Пара", "Горизонт", "Обучение", "Δ MASE", "Bootstrap 95%", "Wilcoxon p"],
     result.comparisons.map((row) => [
-      row.left + " / " + row.right, row.horizon, Math.round(row.fraction * 100) + "%",
+      modeLabels[row.left] + " / " + modeLabels[row.right], row.horizon, Math.round(row.fraction * 100) + "%",
       formatNumber(row.mean_mase_delta), row.bootstrap_ci95?.map(formatNumber).join(" … ") || "—",
       formatNumber(row.wilcoxon_pvalue),
     ]));

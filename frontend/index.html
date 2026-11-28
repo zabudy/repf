@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>REPF · Прогноз недвижимости</title>
-  <link rel="stylesheet" href="/assets/styles.css">
-  <script src="/assets/app.js" defer></script>
+  <link rel="stylesheet" href="/assets/styles.css?v=4">
+  <script src="/assets/app.js?v=4" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -25,7 +25,7 @@
     <section id="forecast" class="page">
       <div class="page-heading">
         <h1>Прогноз недвижимости</h1>
-        <p>Оценка квартиры в Казани и прогноз по историческим данным.</p>
+        <p>Оценка квартиры и прогноз по историческим данным.</p>
       </div>
       <div class="workspace">
         <section class="card input-card" aria-labelledby="input-title">
@@ -36,7 +36,7 @@
           </div>
           <form id="forecast-form">
             <fieldset id="property-fields">
-              <label class="wide">Район
+              <label class="wide">Район или город
                 <select name="district">
                   <option>Вахитовский</option><option>Советский</option><option>Приволжский</option>
                   <option>Ново-Савиновский</option><option>Московский</option>
@@ -45,8 +45,8 @@
               </label>
               <label>Площадь, м² <input name="area_total" type="number" min="1" max="1000" value="54" step="0.1" required></label>
               <label>Год постройки <input name="build_year" type="number" min="1850" max="2100" value="1985"></label>
-              <label>Этаж <input name="floor" type="number" min="1" max="150" value="5" required></label>
-              <label>Этажей в доме <input name="floors_total" type="number" min="1" max="150" value="9" required></label>
+              <label>Этаж <input name="floor" type="number" min="1" max="150" value="5"></label>
+              <label>Этажей в доме <input name="floors_total" type="number" min="1" max="150" value="9"></label>
               <label>Тип дома
                 <select name="house_type"><option value="panel">Панельный</option><option value="brick">Кирпичный</option>
                   <option value="monolith">Монолитный</option><option value="block">Блочный</option><option value="">Не указан</option></select>
@@ -55,8 +55,8 @@
                 <select name="condition"><option value="cosmetic">Косметический</option><option value="needs_repair">Без ремонта</option>
                   <option value="euro">Евроремонт</option><option value="">Не указано</option></select>
               </label>
-              <label class="wide">История продаж JSON, необязательно <input name="market" type="file" accept=".json,application/json"></label>
-              <p class="wide note">Без своей истории используется синтетическая выборка для демонстрации.</p>
+              <label class="wide">История рынка JSON, необязательно <input name="market" type="file" accept=".json,application/json"></label>
+              <p class="wide note" id="market-label">Без файла используется синтетическая выборка по Казани.</p>
             </fieldset>
             <fieldset id="series-fields" hidden disabled>
               <label class="wide">История ряда CSV <input name="series" type="file" accept=".csv,text/csv"></label>
@@ -70,7 +70,7 @@
             </fieldset>
             <div class="fields">
               <label id="horizon-label">Горизонт, месяцев <input name="horizon" type="number" min="1" max="12" value="6" required></label>
-              <label>Режим <select name="mode"><option value="+agents">Агенты + RAG</option><option value="+rag">RAG</option><option value="baseline">Базовый</option></select></label>
+              <label>Режим <select name="mode"><option value="+agents">Агенты + RAG</option><option value="+rag">Подбор по аналогам</option><option value="baseline">Базовый</option></select></label>
             </div>
             <button class="primary full" type="submit">Рассчитать прогноз</button>
             <p class="error" id="forecast-error" role="alert"></p>
@@ -90,7 +90,19 @@
               <figcaption><span class="key"></span> Прогноз <span class="key band"></span> 80%-й интервал</figcaption>
             </figure>
             <div class="stat-grid" id="stats"></div>
-            <p id="explanation"></p>
+            <div id="explanation" class="markdown"></div>
+            <div id="forecast-chat" hidden>
+              <ol id="chat-messages" role="log" aria-label="Переписка о прогнозе"></ol>
+              <form id="chat-form">
+                <textarea name="question" rows="2" maxlength="1500" required
+                  aria-label="Вопрос о прогнозе" placeholder="Задай вопрос по прогнозу"></textarea>
+                <div class="actions">
+                  <button class="primary" type="submit">Отправить</button>
+                  <span id="chat-status" class="note" role="status"></span>
+                </div>
+                <p id="chat-error" class="error" role="alert" hidden></p>
+              </form>
+            </div>
             <ul id="factors" class="plain"></ul>
             <button class="secondary" id="download" type="button">Скачать CSV</button>
           </div>
@@ -124,7 +136,7 @@
           <label>Доли обучения, через запятую <input name="data_fractions" value="0.1, 0.2, 0.5, 1" required></label>
           <div class="checks">
             <label><input type="checkbox" name="mode" value="baseline" checked> Базовый</label>
-            <label><input type="checkbox" name="mode" value="+rag" checked> RAG</label>
+            <label><input type="checkbox" name="mode" value="+rag" checked> Подбор по аналогам</label>
             <label><input type="checkbox" name="mode" value="+agents" checked> Агенты</label>
           </div>
           <button class="primary full">Запустить сравнение</button>

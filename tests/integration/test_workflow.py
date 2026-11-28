@@ -236,6 +236,7 @@ def test_named_checkpoints_validate_models_and_switch_independently(client, monk
     original = httpx.AsyncClient
     available_models = {"test-flash", "test-pro"}
     called = []
+    chats = []
 
     def respond(request):
         body = json.loads(request.content)
@@ -244,7 +245,10 @@ def test_named_checkpoints_validate_models_and_switch_independently(client, monk
         assert request.headers["Authorization"] == "Bearer checkpoint-test-key"
         if model not in available_models:
             return httpx.Response(404, json={"error": {"message": "unknown model"}})
-        if not body.get("tools"):
+        if not body.get("tools") and not body.get("response_format"):
+            chats.append(body["messages"])
+            message = {"content": "Интервал отражает ошибки на отложенных данных."}
+        elif not body.get("tools"):
             message = {"content": '{"score":0.95,"comment":"Прогноз подходит."}'}
         else:
             message = {"tool_calls": [{"function": {
@@ -296,11 +300,39 @@ def test_named_checkpoints_validate_models_and_switch_independently(client, monk
     marker = len(called)
     data = client.get("/api/v1/forecast/demo/series").json()
     task = client.post("/api/v1/forecast/", headers=owner, json={"data": data, "horizon": 2})
-    wait(client, "/api/v1/forecast/" + task.json()["task_id"] + "/status",
-         owner, {"completed", "waiting_for_human"})
+    path = "/api/v1/forecast/" + task.json()["task_id"]
+    wait(client, path + "/status", owner, {"completed", "waiting_for_human"})
     assert called[marker:] and set(called[marker:]) == {"test-pro"}
 
+    result = client.get(path + "/result", headers=owner).json()
+    assert result["chat_enabled"]
+    question = "Что означает интервал?"
+    assert client.post(path + "/chat", headers=guest, json={"question": question}).status_code == 404
+    assert client.post(path + "/chat", headers=owner, json={"question": " "}).status_code == 422
+    assert not chats
+    reply = client.post(path + "/chat", headers=owner, json={"question": question})
+    assert reply.status_code == 200, reply.text
+    assert reply.json()["model"] == "test-pro"
+    answer = reply.json()["answer"]
+    assert answer == "Интервал отражает ошибки на отложенных данных."
+    context = json.loads(chats[0][1]["content"].split("\n", 1)[1])
+    assert context["interval"] == result["interval"]
+    assert context["metrics"] == result["metrics"]
+    assert "observations" not in context
+    assert "checkpoint-test-key" not in str(chats)
+    assert client.put(prefix + "/selection", headers=owner, json={"checkpoint_id": flash}).status_code == 200
+    followup = client.post(path + "/chat", headers=owner, json={
+        "question": "А как он вычисляется?", "history": [{"question": question, "answer": answer}],
+    })
+    assert followup.json()["model"] == "test-flash"
+    assert chats[1][-3:] == [
+        {"role": "user", "content": question},
+        {"role": "assistant", "content": answer},
+        {"role": "user", "content": "А как он вычисляется?"},
+    ]
+    assert client.put(prefix + "/selection", headers=owner, json={"checkpoint_id": pro}).status_code == 200
     assert client.delete(prefix + f"/checkpoints/{pro}", headers=owner).status_code == 204
+    assert client.post(path + "/chat", headers=owner, json={"question": question}).status_code == 503
     final = client.get(prefix + "/settings", headers=owner).json()
     assert final["active_checkpoint_id"] is None
     assert [row["id"] for row in final["checkpoints"]] == [flash]
