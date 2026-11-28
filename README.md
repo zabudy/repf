@@ -74,4 +74,5 @@ docker compose up --build -d
 | [API](docs/API.md) | Авторизация, прогноз, трассировка, HITL и оценка |
 | [Развёртывание](docs/DEPLOYMENT.md) | macOS, Linux, Windows, настройки моделей, Docker и диагностика |
 | [Отчёт](docs/REPORT.md) | Методика, результаты, графики и ограничения |
+| [Презентация](docs/presentation/REPF-MLF.html) | HTML для защиты. Скачайте файл и откройте его в браузере |
 | [Журнал разработки](docs/WORK_LOG.md) | Ход работ и состояние проверок |
